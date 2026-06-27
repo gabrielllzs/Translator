@@ -16,7 +16,7 @@ from interface import TranslatorUI
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
 # ── CONFIGURATIE VOOR AFSTANDSBEDIENING / UPDATES ──
-CURRENT_VERSION = "1.0.1"  # Verhoog dit telkens als je een nieuwe release uitbrengt!
+CURRENT_VERSION = "1.0.2"  # Verhoog dit telkens als je een nieuwe release uitbrengt!
 VERSION_URL = "https://raw.githubusercontent.com/gabrielllzs/Translator/refs/heads/main/version.json"
 
 class MainController:
