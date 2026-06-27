@@ -10,14 +10,14 @@ import urllib.request
 import json
 
 # Importeer onze eigen modules
-from engine import TranslationEngine, SUPPORTED_EXTENSIONS
+from engine import GeminiTranslator, SUPPORTED_EXTENSIONS
 from interface import TranslatorUI
 
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
 # ── CONFIGURATIE VOOR AFSTANDSBEDIENING / UPDATES ──
 CURRENT_VERSION = "1.0.0"  # Verhoog dit telkens als je een nieuwe release uitbrengt!
-VERSION_URL = "https://raw.githubusercontent.com/YourUsername/YourRepo/main/version.json"
+VERSION_URL = "https://raw.githubusercontent.com/gabrielllzs/Translator/refs/heads/main/version.js"
 
 class MainController:
     def __init__(self):
@@ -107,7 +107,7 @@ class MainController:
         self.ui.update_progress(0, len(files))
 
         try:
-            translator = TranslationEngine(api_key=api_key, model_name=model_name)
+            translator = GeminiTranslator(api_key=api_key, model_name=model_name)
         except Exception as e:
             self.ui.log(f"❌ Initialisatie mislukt: {e}")
             self.ui.set_busy(False)
