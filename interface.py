@@ -8,19 +8,17 @@ ctk.set_appearance_mode("System")
 ctk.set_default_color_theme("blue") 
 
 class TranslatorUI:
-    def __init__(self, root, start_callback):
+    def __init__(self, root, start_callback, save_key_callback):
         self.root = root
         self.start_callback = start_callback
+        self.save_key_callback = save_key_callback
         
         self.root.title("File Translator")
         self.root.geometry("700x550")
         self.root.minsize(600, 450)
 
-        self.default_input = Path.cwd() / "files_input"
-        self.default_output = Path.cwd() / "files_translated"
-        self.default_input.mkdir(exist_ok=True)
-        self.default_output.mkdir(exist_ok=True)
-
+        self.default_input = Path.home() / "Documents" / "Translator" / "Input"
+        self.default_output = Path.home() / "Documents" / "Translator" / "Output"
         self.setup_ui()
         
     def setup_ui(self):
@@ -33,11 +31,13 @@ class TranslatorUI:
         frame_key.columnconfigure(1, weight=1)
 
         lbl_key_title = ctk.CTkLabel(frame_key, text="API Instellingen", font=ctk.CTkFont(size=14, weight="bold"))
-        lbl_key_title.grid(row=0, column=0, columnspan=2, sticky="w", padx=15, pady=5)
+        lbl_key_title.grid(row=0, column=0, columnspan=3, sticky="w", padx=15, pady=5)
 
         ctk.CTkLabel(frame_key, text="API Key:").grid(row=1, column=0, sticky="w", padx=15, pady=5)
         self.entry_key = ctk.CTkEntry(frame_key, placeholder_text="Plak hier je API sleutel...", show="*")
-        self.entry_key.grid(row=1, column=1, sticky="ew", padx=15, pady=5)
+        self.entry_key.grid(row=1, column=1, sticky="ew", padx=5, pady=5)
+
+        ctk.CTkButton(frame_key, text="Opslaan", width=90, command=self.on_save_key_click).grid(row=1, column=2, padx=15, pady=5)
 
         # ── MAP SELECTIE FRAME (Schuift naar rij 1) ──
         frame_dirs = ctk.CTkFrame(self.root, corner_radius=10)
@@ -87,6 +87,11 @@ class TranslatorUI:
         self.txt_log.configure(state="disabled")
 
         self.log("Applicatie opgestart. Vul je API-key in, selecteer mappen en klik op 'Start Vertaling'.")
+
+    def on_save_key_click(self):
+        """Wordt aangeroepen als de gebruiker op 'Opslaan' klikt bij de API-key."""
+        api_key = self.entry_key.get().strip()
+        self.save_key_callback(api_key)
 
     def browse_input(self):
         dir_selected = filedialog.askdirectory(initialdir=self.entry_input.get())
