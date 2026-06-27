@@ -18,7 +18,7 @@ load_dotenv(Path(__file__).resolve().parent / ".env")
 # ── CONFIGURATIE VOOR AFSTANDSBEDIENING / UPDATES ──
 CURRENT_VERSION = "1.0.3"  # Verhoog dit telkens als je een nieuwe release uitbrengt!
 # GEFIXT: De URL is nu direct en correct zonder /refs/heads/
-VERSION_URL = "https://raw.githubusercontent.com/gabrielllzs/Translator/main/version.json"
+VERSION_URL = "https://raw.githubusercontent.com/gabrielllzs/Translator/refs/heads/main/version.json"
 
 class MainController:
     def __init__(self):
