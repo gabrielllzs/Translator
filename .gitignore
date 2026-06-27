@@ -3,3 +3,5 @@ __pycache__
 build
 dist
 .env
+main.spec
+translation_cache.tmp
