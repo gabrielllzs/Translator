@@ -16,16 +16,39 @@ from interface import TranslatorUI
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
 # ── CONFIGURATIE VOOR AFSTANDSBEDIENING / UPDATES ──
-CURRENT_VERSION = "1.0.0"  # Verhoog dit telkens als je een nieuwe release uitbrengt!
-VERSION_URL = "https://raw.githubusercontent.com/gabrielllzs/Translator/refs/heads/main/version.js"
+CURRENT_VERSION = "1.0.1"  # Verhoog dit telkens als je een nieuwe release uitbrengt!
+VERSION_URL = "https://raw.githubusercontent.com/gabrielllzs/Translator/refs/heads/main/version.json"
 
 class MainController:
     def __init__(self):
         self.root = ctk.CTk()
         self.ui = TranslatorUI(self.root, self.handle_start_translation)
         
+        self.config_path = Path(__file__).resolve().parent / "config.json"
+        self._load_saved_api_key() # Laad de key als die al eens is ingevuld
+
         # Start een stille achtergrondcontrole voor updates bij het opstarten
         threading.Thread(target=self._check_for_updates, daemon=True).start()
+
+    def _load_saved_api_key(self):
+        """Laad de opgeslagen API-key in het UI invoerveld."""
+        if self.config_path.exists():
+            try:
+                with open(self.config_path, "r") as f:
+                    data = json.load(f)
+                    saved_key = data.get("api_key", "")
+                    if saved_key:
+                        self.ui.entry_key.insert(0, saved_key)
+            except Exception:
+                pass
+
+    def _save_api_key(self, api_key):
+        """Slaat de ingevoerde API-key lokaal op."""
+        try:
+            with open(self.config_path, "w") as f:
+                json.dump({"api_key": api_key}, f)
+        except Exception as e:
+            print(f"Kon config niet opslaan: {e}")
 
     def run(self):
         self.root.mainloop()
@@ -89,10 +112,15 @@ class MainController:
 
         api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
         if not api_key:
-            self.ui.log("❌ FOUT: Geen API-sleutel gevonden!")
-            self.ui.show_error("Key Fout", "Geen API-sleutel gevonden. Voeg deze toe aan je .env bestand.")
+            api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+
+        if not api_key:
+            self.ui.log("❌ FOUT: Geen API-sleutel ingevuld!")
+            self.ui.show_error("Key Fout", "Vul a.u.b. eerst je API-sleutel in bovenin het scherm.")
             self.ui.set_busy(False)
             return
+        
+        self._save_api_key(api_key)
 
         model_name = (os.getenv("GEMINI_MODEL") or "gemini-2.5-flash-lite").strip()
         files = [f for f in input_dir.iterdir() if f.is_file() and f.suffix.lower() in SUPPORTED_EXTENSIONS]

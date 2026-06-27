@@ -25,15 +25,27 @@ class TranslatorUI:
         
     def setup_ui(self):
         self.root.columnconfigure(0, weight=1)
-        self.root.rowconfigure(2, weight=1)
+        self.root.rowconfigure(3, weight=1) # Log-frame schuift een rij op naar rij 3
 
-        # ── MAP SELECTIE FRAME ──
+        # ── API KEY FRAME ──
+        frame_key = ctk.CTkFrame(self.root, corner_radius=10)
+        frame_key.grid(row=0, column=0, padx=15, pady=10, sticky="ew")
+        frame_key.columnconfigure(1, weight=1)
+
+        lbl_key_title = ctk.CTkLabel(frame_key, text="API Instellingen", font=ctk.CTkFont(size=14, weight="bold"))
+        lbl_key_title.grid(row=0, column=0, columnspan=2, sticky="w", padx=15, pady=5)
+
+        ctk.CTkLabel(frame_key, text="API Key:").grid(row=1, column=0, sticky="w", padx=15, pady=5)
+        self.entry_key = ctk.CTkEntry(frame_key, placeholder_text="Plak hier je API sleutel...", show="*")
+        self.entry_key.grid(row=1, column=1, sticky="ew", padx=15, pady=5)
+
+        # ── MAP SELECTIE FRAME (Schuift naar rij 1) ──
         frame_dirs = ctk.CTkFrame(self.root, corner_radius=10)
-        frame_dirs.grid(row=0, column=0, padx=15, pady=15, sticky="ew")
+        frame_dirs.grid(row=1, column=0, padx=15, pady=10, sticky="ew")
         frame_dirs.columnconfigure(1, weight=1)
 
-        lbl_title = ctk.CTkLabel(frame_dirs, text="Mappen Selecteren", font=ctk.CTkFont(size=15, weight="bold"))
-        lbl_title.grid(row=0, column=0, columnspan=3, sticky="w", padx=15, pady=10)
+        lbl_title = ctk.CTkLabel(frame_dirs, text="Mappen Selecteren", font=ctk.CTkFont(size=14, weight="bold"))
+        lbl_title.grid(row=0, column=0, columnspan=3, sticky="w", padx=15, pady=5)
 
         # Input Map
         ctk.CTkLabel(frame_dirs, text="Input map:").grid(row=1, column=0, sticky="w", padx=15, pady=5)
@@ -49,9 +61,9 @@ class TranslatorUI:
         self.entry_output.grid(row=2, column=1, sticky="ew", padx=5, pady=5)
         ctk.CTkButton(frame_dirs, text="Bladeren...", width=100, command=self.browse_output).grid(row=2, column=2, padx=15, pady=5)
 
-        # ── ACTIE FRAME ──
+        # ── ACTIE FRAME (Schuift naar rij 2) ──
         frame_actions = ctk.CTkFrame(self.root, fg_color="transparent")
-        frame_actions.grid(row=1, column=0, padx=15, pady=5, sticky="ew")
+        frame_actions.grid(row=2, column=0, padx=15, pady=5, sticky="ew")
         frame_actions.columnconfigure(1, weight=1)
         
         self.btn_start = ctk.CTkButton(frame_actions, text="Start Vertaling", font=ctk.CTkFont(weight="bold"), command=self.on_start_click)
@@ -59,22 +71,22 @@ class TranslatorUI:
         
         self.progress_bar = ctk.CTkProgressBar(frame_actions)
         self.progress_bar.grid(row=0, column=1, sticky="ew", padx=15, pady=5)
-        self.progress_bar.set(0) # Begint leeg (0.0 tot 1.0)
+        self.progress_bar.set(0)
 
-        # ── LOG FRAME ──
+        # ── LOG FRAME (Schuift naar rij 3) ──
         frame_log = ctk.CTkFrame(self.root, corner_radius=10)
-        frame_log.grid(row=2, column=0, padx=15, pady=15, sticky="nsew")
+        frame_log.grid(row=3, column=0, padx=15, pady=10, sticky="nsew")
         frame_log.columnconfigure(0, weight=1)
         frame_log.rowconfigure(1, weight=1)
 
-        lbl_log_title = ctk.CTkLabel(frame_log, text="Voortgang & Log", font=ctk.CTkFont(size=15, weight="bold"))
-        lbl_log_title.grid(row=0, column=0, sticky="w", padx=15, pady=10)
+        lbl_log_title = ctk.CTkLabel(frame_log, text="Voortgang & Log", font=ctk.CTkFont(size=14, weight="bold"))
+        lbl_log_title.grid(row=0, column=0, sticky="w", padx=15, pady=5)
 
         self.txt_log = ctk.CTkTextbox(frame_log, font=("Consolas", 12))
         self.txt_log.grid(row=1, column=0, sticky="nsew", padx=15, pady=10)
         self.txt_log.configure(state="disabled")
 
-        self.log("Applicatie opgestart. Selecteer mappen en klik op 'Start Vertaling'.")
+        self.log("Applicatie opgestart. Vul je API-key in, selecteer mappen en klik op 'Start Vertaling'.")
 
     def browse_input(self):
         dir_selected = filedialog.askdirectory(initialdir=self.entry_input.get())
