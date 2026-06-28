@@ -16,7 +16,7 @@ from interface import TranslatorUI
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
 # ── CONFIGURATIE VOOR AFSTANDSBEDIENING / UPDATES ──
-CURRENT_VERSION = "1.0.3"  # Verhoog dit telkens als je een nieuwe release uitbrengt!
+CURRENT_VERSION = "1.0.4"  # Verhoog dit telkens als je een nieuwe release uitbrengt!
 # GEFIXT: De URL is nu direct en correct zonder /refs/heads/
 VERSION_URL = "https://raw.githubusercontent.com/gabrielllzs/Translator/refs/heads/main/version.json"
 
@@ -130,7 +130,7 @@ class MainController:
         except Exception:
             pass
 
-        model_name = (os.getenv("GEMINI_MODEL") or "gemini-2.5-flash-lite").strip()
+        model_name = (os.getenv("GEMINI_MODEL") or "gemini-3.1-flash-lite").strip()
         files = [f for f in input_dir.iterdir() if f.is_file() and f.suffix.lower() in SUPPORTED_EXTENSIONS]
 
         if not files:
