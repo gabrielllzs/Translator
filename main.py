@@ -16,7 +16,7 @@ from interface import TranslatorUI
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
 # ── CONFIGURATIE VOOR AFSTANDSBEDIENING / UPDATES ──
-CURRENT_VERSION = "1.0.4"  # Verhoog dit telkens als je een nieuwe release uitbrengt!
+CURRENT_VERSION = "1.0.5"  # Verhoog dit telkens als je een nieuwe release uitbrengt!
 # GEFIXT: De URL is nu direct en correct zonder /refs/heads/
 VERSION_URL = "https://raw.githubusercontent.com/gabrielllzs/Translator/refs/heads/main/version.json"
 
@@ -74,7 +74,6 @@ class MainController:
             print(f"Update check failed: {e}")
 
     def _prompt_update(self, remote_version, installer_url):
-        """Vraagt de gebruiker of hij de update wil installeren."""
         msg = f"Er is een nieuwe versie ({remote_version}) beschikbaar!\n\nWilt u de update nu automatisch downloaden en installeren?"
         if messagebox.askyesno("Update Beschikbaar", msg):
             self.ui.log(f"📥 Update gevonden ({remote_version}). Downloaden starten...")
@@ -82,10 +81,9 @@ class MainController:
             threading.Thread(target=self._download_and_run_updater, args=(installer_url,), daemon=True).start()
 
     def _download_and_run_updater(self, installer_url):
-        """Downloadt de nieuwe installer en sluit de huidige app af."""
         try:
             temp_dir = Path(os.environ.get("TEMP", "."))
-            installer_path = temp_dir / "TranslatorInstaller.exe"  # Let op dat dit matcht met je Inno Setup naam
+            installer_path = temp_dir / "TranslatorInstaller.exe"
             
             urllib.request.urlretrieve(installer_url, installer_path)
             
@@ -98,22 +96,30 @@ class MainController:
             self.root.after(0, lambda: messagebox.showerror("Update Fout", f"Kon de update niet installeren: {e}"))
             self.root.after(0, lambda: self.ui.set_busy(False))
 
-    def handle_start_translation(self, input_dir: Path, output_dir: Path):
+    def handle_start_translation(self, selected_files: list[Path]):
+        """Nieuwe handler die de lijst met geselecteerde bestanden accepteert."""
         self.ui.set_busy(True)
         threading.Thread(
             target=self._process_translation_thread, 
-            args=(input_dir, output_dir), 
+            args=(selected_files,), 
             daemon=True
         ).start()
 
-    def _process_translation_thread(self, input_dir: Path, output_dir: Path):
-        input_dir.mkdir(parents=True, exist_ok=True)
+    def _process_translation_thread(self, selected_files: list[Path]):
+        if not selected_files:
+            self.ui.log("⚠️ Geen bestanden geselecteerd.")
+            self.ui.set_busy(False)
+            return
+
+        # AUTOMATISCHE MAP GENERATIE:
+        # We pakken de map van het allereerste geselecteerde bestand en maken daar 'bestanden_vertaald' aan
+        base_dir = selected_files[0].parent
+        output_dir = base_dir / "bestanden_vertaald"
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        # GEFIXT: Haal nu EERST de sleutel op uit het invoerveld van de UI
+        # Haal de sleutel op uit het invoerveld van de UI
         api_key = self.ui.entry_key.get().strip()
         
-        # Pas als het invoerveld leeg is, kijken we als fallback naar een .env bestand
         if not api_key:
             api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
 
@@ -123,7 +129,7 @@ class MainController:
             self.ui.set_busy(False)
             return
         
-        # GEFIXT: Sla de key stilletjes op in het JSON-config bestand zodat deze onthouden blijft
+        # Sla de key geruisloos op de achtergrond op
         try:
             with open(self.config_path, "w") as f:
                 json.dump({"api_key": api_key}, f)
@@ -131,16 +137,9 @@ class MainController:
             pass
 
         model_name = (os.getenv("GEMINI_MODEL") or "gemini-3.1-flash-lite").strip()
-        files = [f for f in input_dir.iterdir() if f.is_file() and f.suffix.lower() in SUPPORTED_EXTENSIONS]
 
-        if not files:
-            self.ui.log(f"⚠️ Geen ondersteunde bestanden gevonden in: {input_dir.name}")
-            self.ui.show_info("Geen bestanden", "Geen ondersteunde documenten of afbeeldingen gevonden.")
-            self.ui.set_busy(False)
-            return
-
-        self.ui.log(f"🚀 Starten met {len(files)} bestand(en)...")
-        self.ui.update_progress(0, len(files))
+        self.ui.log(f"🚀 Starten met {len(selected_files)} bestand(en)...")
+        self.ui.update_progress(0, len(selected_files))
 
         try:
             translator = GeminiTranslator(api_key=api_key, model_name=model_name)
@@ -150,8 +149,8 @@ class MainController:
             return
 
         success_count = 0
-        for idx, src_file in enumerate(files, 1):
-            self.ui.log(f"\n[{idx}/{len(files)}] Verwerken: {src_file.name}")
+        for idx, src_file in enumerate(selected_files, 1):
+            self.ui.log(f"\n[{idx}/{len(selected_files)}] Verwerken: {src_file.name}")
             dest_file = output_dir / f"{src_file.stem}_translated.txt"
 
             success = translator.translate_single_file(src_file, dest_file, log_callback=self.ui.log)
@@ -159,11 +158,12 @@ class MainController:
             if success:
                 success_count += 1
             
-            self.ui.update_progress(idx, len(files))
+            self.ui.update_progress(idx, len(selected_files))
             time.sleep(0.5)
 
-        self.ui.log(f"\n{'='*40}\n🎉 Klaar! {success_count} van de {len(files)} bestanden succesvol vertaald.")
-        self.ui.show_info("Klaar", f"Vertaling voltooid!\n{success_count} bestanden succesvol verwerkt.")
+        self.ui.log(f"\n{'='*40}\n🎉 Klaar! {success_count} van de {len(selected_files)} bestanden succesvol vertaald.")
+        self.ui.log(f"📂 Locatie: {output_dir}")
+        self.ui.show_info("Klaar", f"Vertaling voltooid!\n{success_count} bestanden opgeslagen in de map:\n{output_dir.name}")
         self.ui.set_busy(False)
 
 if __name__ == "__main__":

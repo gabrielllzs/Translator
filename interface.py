@@ -13,17 +13,18 @@ class TranslatorUI:
         self.start_callback = start_callback
         self.save_key_callback = save_key_callback
         
+        # Hier slaan we de geselecteerde Path-objecten op
+        self.selected_files = []
+        
         self.root.title("File Translator")
-        self.root.geometry("700x550")
-        self.root.minsize(600, 450)
+        self.root.geometry("700x500")
+        self.root.minsize(600, 400)
 
-        self.default_input = Path.home() / "Documents" / "Translator" / "Input"
-        self.default_output = Path.home() / "Documents" / "Translator" / "Output"
         self.setup_ui()
         
     def setup_ui(self):
         self.root.columnconfigure(0, weight=1)
-        self.root.rowconfigure(3, weight=1) # Log-frame schuift een rij op naar rij 3
+        self.root.rowconfigure(3, weight=1) 
 
         # ── API KEY FRAME ──
         frame_key = ctk.CTkFrame(self.root, corner_radius=10)
@@ -39,29 +40,23 @@ class TranslatorUI:
 
         ctk.CTkButton(frame_key, text="Opslaan", width=90, command=self.on_save_key_click).grid(row=1, column=2, padx=15, pady=5)
 
-        # ── MAP SELECTIE FRAME (Schuift naar rij 1) ──
-        frame_dirs = ctk.CTkFrame(self.root, corner_radius=10)
-        frame_dirs.grid(row=1, column=0, padx=15, pady=10, sticky="ew")
-        frame_dirs.columnconfigure(1, weight=1)
+        # ── BESTANDEN SELECTIE FRAME (Nieuw en gebruiksvriendelijk!) ──
+        frame_files = ctk.CTkFrame(self.root, corner_radius=10)
+        frame_files.grid(row=1, column=0, padx=15, pady=10, sticky="ew")
+        frame_files.columnconfigure(1, weight=1)
 
-        lbl_title = ctk.CTkLabel(frame_dirs, text="Mappen Selecteren", font=ctk.CTkFont(size=14, weight="bold"))
+        lbl_title = ctk.CTkLabel(frame_files, text="Bestanden Selecteren", font=ctk.CTkFont(size=14, weight="bold"))
         lbl_title.grid(row=0, column=0, columnspan=3, sticky="w", padx=15, pady=5)
 
-        # Input Map
-        ctk.CTkLabel(frame_dirs, text="Input map:").grid(row=1, column=0, sticky="w", padx=15, pady=5)
-        self.entry_input = ctk.CTkEntry(frame_dirs, placeholder_text="Selecteer invoermap...")
-        self.entry_input.insert(0, str(self.default_input))
-        self.entry_input.grid(row=1, column=1, sticky="ew", padx=5, pady=5)
-        ctk.CTkButton(frame_dirs, text="Bladeren...", width=100, command=self.browse_input).grid(row=1, column=2, padx=15, pady=5)
+        ctk.CTkLabel(frame_files, text="Documenten/Foto's:").grid(row=1, column=0, sticky="w", padx=15, pady=5)
+        
+        self.entry_files = ctk.CTkEntry(frame_files, placeholder_text="Kies één of meerdere bestanden...")
+        self.entry_files.grid(row=1, column=1, sticky="ew", padx=5, pady=5)
+        self.entry_files.configure(state="readonly") # Voorkom handmatig typen
 
-        # Output Map
-        ctk.CTkLabel(frame_dirs, text="Output map:").grid(row=2, column=0, sticky="w", padx=15, pady=5)
-        self.entry_output = ctk.CTkEntry(frame_dirs, placeholder_text="Selecteer uitvoermap...")
-        self.entry_output.insert(0, str(self.default_output))
-        self.entry_output.grid(row=2, column=1, sticky="ew", padx=5, pady=5)
-        ctk.CTkButton(frame_dirs, text="Bladeren...", width=100, command=self.browse_output).grid(row=2, column=2, padx=15, pady=5)
+        ctk.CTkButton(frame_files, text="Selecteer...", width=100, command=self.browse_files).grid(row=1, column=2, padx=15, pady=5)
 
-        # ── ACTIE FRAME (Schuift naar rij 2) ──
+        # ── ACTIE FRAME ──
         frame_actions = ctk.CTkFrame(self.root, fg_color="transparent")
         frame_actions.grid(row=2, column=0, padx=15, pady=5, sticky="ew")
         frame_actions.columnconfigure(1, weight=1)
@@ -73,7 +68,7 @@ class TranslatorUI:
         self.progress_bar.grid(row=0, column=1, sticky="ew", padx=15, pady=5)
         self.progress_bar.set(0)
 
-        # ── LOG FRAME (Schuift naar rij 3) ──
+        # ── LOG FRAME ──
         frame_log = ctk.CTkFrame(self.root, corner_radius=10)
         frame_log.grid(row=3, column=0, padx=15, pady=10, sticky="nsew")
         frame_log.columnconfigure(0, weight=1)
@@ -86,24 +81,33 @@ class TranslatorUI:
         self.txt_log.grid(row=1, column=0, sticky="nsew", padx=15, pady=10)
         self.txt_log.configure(state="disabled")
 
-        self.log("Applicatie opgestart. Vul je API-key in, selecteer mappen en klik op 'Start Vertaling'.")
+        self.log("Applicatie opgestart. Selecteer je bestanden, vul je API-key in en klik op 'Start Vertaling'.")
 
     def on_save_key_click(self):
-        """Wordt aangeroepen als de gebruiker op 'Opslaan' klikt bij de API-key."""
         api_key = self.entry_key.get().strip()
         self.save_key_callback(api_key)
 
-    def browse_input(self):
-        dir_selected = filedialog.askdirectory(initialdir=self.entry_input.get())
-        if dir_selected:
-            self.entry_input.delete(0, 'end')
-            self.entry_input.insert(0, dir_selected)
-
-    def browse_output(self):
-        dir_selected = filedialog.askdirectory(initialdir=self.entry_output.get())
-        if dir_selected:
-            self.entry_output.delete(0, 'end')
-            self.entry_output.insert(0, dir_selected)
+    def browse_files(self):
+        """Opent de verkenner om meerdere specifieke bestanden te kiezen."""
+        file_types = [
+            ("Ondersteunde bestanden", "*.pdf *.jpg *.jpeg *.png *.webp *.heic *.tiff *.tif"),
+            ("Alle bestanden", "*.*")
+        ]
+        files_selected = filedialog.askopenfilenames(title="Kies bestanden om te vertalen", filetypes=file_types)
+        
+        if files_selected:
+            self.selected_files = [Path(f) for f in files_selected]
+            
+            # Update het invoerveld met een nette omschrijving
+            self.entry_files.configure(state="normal")
+            self.entry_files.delete(0, 'end')
+            if len(self.selected_files) == 1:
+                self.entry_files.insert(0, self.selected_files[0].name)
+            else:
+                self.entry_files.insert(0, f"{len(self.selected_files)} bestanden geselecteerd")
+            self.entry_files.configure(state="readonly")
+            
+            self.log(f"📁 {len(self.selected_files)} bestand(en) geselecteerd voor vertaling.")
 
     def log(self, message: str):
         def append():
@@ -114,9 +118,10 @@ class TranslatorUI:
         self.root.after(0, append)
 
     def on_start_click(self):
-        input_dir = Path(self.entry_input.get())
-        output_dir = Path(self.entry_output.get())
-        self.start_callback(input_dir, output_dir)
+        if not self.selected_files:
+            self.show_error("Geen bestanden", "Selecteer a.u.b. eerst één of meerdere bestanden via de 'Selecteer...' knop.")
+            return
+        self.start_callback(self.selected_files)
 
     def set_busy(self, busy: bool):
         if busy:
@@ -126,7 +131,6 @@ class TranslatorUI:
 
     def update_progress(self, current: int, total: int):
         if total > 0:
-            # CustomTkinter verwacht een float-waarde tussen 0.0 en 1.0
             self.progress_bar.set(current / total)
 
     def show_error(self, title, msg):
