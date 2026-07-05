@@ -8,6 +8,8 @@ from pathlib import Path
 from dotenv import load_dotenv
 import urllib.request
 import json
+import keyring
+
 
 # Importeer onze eigen modules
 from engine import GeminiTranslator, SUPPORTED_EXTENSIONS
@@ -16,8 +18,7 @@ from interface import TranslatorUI
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
 # ── CONFIGURATIE VOOR AFSTANDSBEDIENING / UPDATES ──
-CURRENT_VERSION = "1.0.5"  # Verhoog dit telkens als je een nieuwe release uitbrengt!
-# GEFIXT: De URL is nu direct en correct zonder /refs/heads/
+CURRENT_VERSION = "1.1.0"  
 VERSION_URL = "https://raw.githubusercontent.com/gabrielllzs/Translator/refs/heads/main/version.json"
 
 class MainController:
@@ -31,29 +32,24 @@ class MainController:
         threading.Thread(target=self._check_for_updates, daemon=True).start()
 
     def _load_saved_api_key(self):
-        """Laad de opgeslagen API-key in het UI invoerveld."""
-        if self.config_path.exists():
-            try:
-                with open(self.config_path, "r") as f:
-                    data = json.load(f)
-                    saved_key = data.get("api_key", "")
-                    if saved_key:
-                        self.ui.entry_key.insert(0, saved_key)
-            except Exception:
-                pass
+        """Laad de API-key veilig uit de Windows Kluis (Credential Manager)."""
+        try:
+            saved_key = keyring.get_password("TranslatorApp", "gemini_api_key")
+            if saved_key:
+                self.ui.entry_key.insert(0, saved_key)
+        except Exception as e:
+            print(f"Kon sleutel niet veilig laden: {e}")
 
     def handle_save_api_key(self, api_key):
-        """Verwerkt het handmatig opslaan van de API-key via de knop."""
         if not api_key:
             messagebox.showwarning("Waarschuwing", "Het invoerveld is leeg. Vul eerst een sleutel in.")
             return
             
         try:
-            with open(self.config_path, "w") as f:
-                json.dump({"api_key": api_key}, f)
+            keyring.set_password("TranslatorApp", "gemini_api_key", api_key)
             
-            messagebox.showinfo("Succes", "API-key succesvol opgeslagen!")
-            self.ui.log("💾 API-key succesvol lokaal opgeslagen.")
+            messagebox.showinfo("Succes", "API-key is opgeslagen.")
+            self.ui.log("🔒 API-key is opgeslagen")
         except Exception as e:
             messagebox.showerror("Fout", f"Kon de API-key niet opslaan: {e}")
             
@@ -61,7 +57,6 @@ class MainController:
         self.root.mainloop()
 
     def _check_for_updates(self):
-        """Controleert op GitHub of er een nieuwere versie beschikbaar is."""
         try:
             with urllib.request.urlopen(VERSION_URL, timeout=5) as response:
                 data = json.loads(response.read().decode())
@@ -97,18 +92,18 @@ class MainController:
             self.root.after(0, lambda: self.ui.set_busy(False))
 
     def handle_start_translation(self, selected_files: list[Path]):
-        """Nieuwe handler die de lijst met geselecteerde bestanden accepteert."""
+        target_lang = self.ui.lang_var.get()
         self.ui.set_busy(True)
         threading.Thread(
             target=self._process_translation_thread, 
-            args=(selected_files,), 
+            args=(selected_files, target_lang), 
             daemon=True
         ).start()
 
-    def _process_translation_thread(self, selected_files: list[Path]):
+    def _process_translation_thread(self, selected_files: list[Path], target_lang: str):        
         if not selected_files:
             self.ui.log("⚠️ Geen bestanden geselecteerd.")
-            self.ui.set_busy(False)
+            self.ui.set_busy(False) 
             return
 
         # AUTOMATISCHE MAP GENERATIE:
@@ -149,11 +144,17 @@ class MainController:
             return
 
         success_count = 0
+        
         for idx, src_file in enumerate(selected_files, 1):
             self.ui.log(f"\n[{idx}/{len(selected_files)}] Verwerken: {src_file.name}")
-            dest_file = output_dir / f"{src_file.stem}_translated.txt"
+            dest_file = output_dir / f"{src_file.stem}_{target_lang}.txt"
 
-            success = translator.translate_single_file(src_file, dest_file, log_callback=self.ui.log)
+            success = translator.translate_single_file(
+                src_file, 
+                dest_file, 
+                target_language=target_lang,
+                log_callback=self.ui.log
+            )
             
             if success:
                 success_count += 1

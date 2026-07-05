@@ -40,21 +40,29 @@ class TranslatorUI:
 
         ctk.CTkButton(frame_key, text="Opslaan", width=90, command=self.on_save_key_click).grid(row=1, column=2, padx=15, pady=5)
 
-        # ── BESTANDEN SELECTIE FRAME (Nieuw en gebruiksvriendelijk!) ──
+        # ── HET FRAME DEFINIËREN (Eerst doen!) ──
         frame_files = ctk.CTkFrame(self.root, corner_radius=10)
         frame_files.grid(row=1, column=0, padx=15, pady=10, sticky="ew")
         frame_files.columnconfigure(1, weight=1)
 
-        lbl_title = ctk.CTkLabel(frame_files, text="Bestanden Selecteren", font=ctk.CTkFont(size=14, weight="bold"))
-        lbl_title.grid(row=0, column=0, columnspan=3, sticky="w", padx=15, pady=5)
+        # ── TAAL SELECTIE (Nu pas in frame_files plaatsen) ──
+        lbl_lang_title = ctk.CTkLabel(frame_files, text="Taal Instellingen", font=ctk.CTkFont(size=14, weight="bold"))
+        lbl_lang_title.grid(row=0, column=0, columnspan=2, sticky="w", padx=15, pady=5)
 
-        ctk.CTkLabel(frame_files, text="Documenten/Foto's:").grid(row=1, column=0, sticky="w", padx=15, pady=5)
-        
+        self.lang_var = ctk.StringVar(value="Dutch")
+        ctk.CTkLabel(frame_files, text="Doeltaal:").grid(row=1, column=0, padx=15, pady=5, sticky="w")
+        self.lang_menu = ctk.CTkOptionMenu(frame_files, variable=self.lang_var, values=["Dutch", "Arabic"])
+        self.lang_menu.grid(row=1, column=1, padx=15, pady=5, sticky="ew")
+
+        # ── BESTANDEN SELECTIE (Ook in hetzelfde frame) ──
+        lbl_file_title = ctk.CTkLabel(frame_files, text="Bestanden Selecteren", font=ctk.CTkFont(size=14, weight="bold"))
+        lbl_file_title.grid(row=2, column=0, columnspan=3, sticky="w", padx=15, pady=5)
+
+        ctk.CTkLabel(frame_files, text="Documenten:").grid(row=3, column=0, sticky="w", padx=15, pady=5)
         self.entry_files = ctk.CTkEntry(frame_files, placeholder_text="Kies één of meerdere bestanden...")
-        self.entry_files.grid(row=1, column=1, sticky="ew", padx=5, pady=5)
-        self.entry_files.configure(state="readonly") # Voorkom handmatig typen
-
-        ctk.CTkButton(frame_files, text="Selecteer...", width=100, command=self.browse_files).grid(row=1, column=2, padx=15, pady=5)
+        self.entry_files.grid(row=3, column=1, sticky="ew", padx=5, pady=5)
+        self.entry_files.configure(state="readonly")
+        ctk.CTkButton(frame_files, text="Selecteer...", width=100, command=self.browse_files).grid(row=3, column=2, padx=15, pady=5)
 
         # ── ACTIE FRAME ──
         frame_actions = ctk.CTkFrame(self.root, fg_color="transparent")
@@ -86,7 +94,7 @@ class TranslatorUI:
     def on_save_key_click(self):
         api_key = self.entry_key.get().strip()
         self.save_key_callback(api_key)
-
+    
     def browse_files(self):
         """Opent de verkenner om meerdere specifieke bestanden te kiezen."""
         file_types = [
