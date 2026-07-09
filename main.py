@@ -18,7 +18,7 @@ from interface import TranslatorUI
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
 # ── CONFIGURATIE VOOR AFSTANDSBEDIENING / UPDATES ──
-CURRENT_VERSION = "1.1.0"  
+CURRENT_VERSION = "1.1.1"  
 VERSION_URL = "https://raw.githubusercontent.com/gabrielllzs/Translator/refs/heads/main/version.json"
 
 class MainController:
@@ -124,14 +124,13 @@ class MainController:
             self.ui.set_busy(False)
             return
         
-        # Sla de key geruisloos op de achtergrond op
         try:
             with open(self.config_path, "w") as f:
                 json.dump({"api_key": api_key}, f)
         except Exception:
             pass
 
-        model_name = (os.getenv("GEMINI_MODEL") or "gemini-3.1-flash-lite").strip()
+        model_name = "gemini-3.1-flash-lite"
 
         self.ui.log(f"🚀 Starten met {len(selected_files)} bestand(en)...")
         self.ui.update_progress(0, len(selected_files))

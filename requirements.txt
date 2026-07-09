@@ -2,3 +2,4 @@ python-dotenv>=1.0.0
 google-genai>=1.0.0
 customtkinter>=6.0.0
 dotenv>=1.0.0
+pypdf
