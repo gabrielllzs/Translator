@@ -1,250 +1,391 @@
-import customtkinter as ctk
-from tkinter import filedialog, messagebox
+import flet as ft
 from pathlib import Path
 
-# Thema instellingen (Opties: "System", "Dark", "Light")
-ctk.set_appearance_mode("System")
-# Kleurenschema (Opties: "blue", "green", "dark-blue")
-ctk.set_default_color_theme("blue")
+# Het logvenster begrenzen: elke update() stuurt een diff van de hele
+# ListView, dus een onbeperkt groeiend log maakt iedere volgende logregel
+# duurder (O(n²) over een lange vertaling).
+MAX_LOG_LINES = 500
+
+# ── Palet: slate-oppervlakken met een gedempt indigo accent ──
+# Alles wordt via kleurrollen (SURFACE, ON_SURFACE_VARIANT, PRIMARY, ...)
+# gebruikt, zodat licht/donker automatisch meeschakelt met Windows.
+LIGHT_SCHEME = ft.ColorScheme(
+    primary="#4F46E5",
+    on_primary="#FFFFFF",
+    surface="#F8FAFC",
+    surface_container_lowest="#FFFFFF",
+    surface_container_highest="#F1F5F9",
+    on_surface="#0F172A",
+    on_surface_variant="#64748B",
+    outline="#CBD5E1",
+    outline_variant="#E2E8F0",
+    error="#DC2626",
+)
+
+DARK_SCHEME = ft.ColorScheme(
+    primary="#818CF8",
+    on_primary="#1E1B4B",
+    surface="#0F172A",
+    surface_container_lowest="#1E293B",
+    surface_container_highest="#243244",
+    on_surface="#F1F5F9",
+    on_surface_variant="#94A3B8",
+    outline="#475569",
+    outline_variant="#334155",
+    error="#F87171",
+)
+
+CONTROL_HEIGHT = 44
+RADIUS = 8
+BTN_SHAPE = ft.RoundedRectangleBorder(radius=RADIUS)
 
 
 class TranslatorUI:
-    def __init__(self, root, start_callback, save_key_callback):
-        self.root = root
+    def __init__(self, page: ft.Page, start_callback, save_key_callback, stop_callback):
+        self.page = page
         self.start_callback = start_callback
         self.save_key_callback = save_key_callback
+        self.stop_callback = stop_callback
 
         self.selected_files = []
 
-        self.root.title("File Translator")
-        self.root.geometry("760x580")
-        self.root.minsize(640, 480)
+        page.title = "File Translator"
+        page.theme_mode = ft.ThemeMode.SYSTEM
+        page.theme = ft.Theme(color_scheme=LIGHT_SCHEME)
+        page.dark_theme = ft.Theme(color_scheme=DARK_SCHEME)
+        page.window.width = 820
+        page.window.height = 660
+        page.window.min_width = 680
+        page.window.min_height = 520
+        page.padding = 28
 
         self.setup_ui()
 
     # ------------------------------------------------------------------
-    # Kleine helper om een sectiekopje te tekenen (label in kapitalen).
-    # Vervangt de losse omkaderde frames door een lichtere structuur.
+    # Kleine bouwstenen voor een consistente opmaak
     # ------------------------------------------------------------------
-    def _section_label(self, parent, text, row, pady_top=18):
-        lbl = ctk.CTkLabel(
-            parent, text=text.upper(),
-            font=ctk.CTkFont(size=11, weight="bold"),
-            text_color=("gray40", "gray65"),
+    def _section_label(self, text):
+        return ft.Text(
+            text.upper(), size=11, weight=ft.FontWeight.W_700,
+            color=ft.Colors.ON_SURFACE_VARIANT,
+            style=ft.TextStyle(letter_spacing=0.8),
         )
-        lbl.grid(row=row, column=0, columnspan=3, sticky="w", pady=(pady_top, 6))
 
-    def _divider(self, parent, row, pady=16):
-        line = ctk.CTkFrame(parent, height=1, fg_color=("gray80", "gray30"), corner_radius=0)
-        line.grid(row=row, column=0, columnspan=3, sticky="ew", pady=pady)
+    def _hairline(self):
+        return ft.Container(height=1, bgcolor=ft.Colors.OUTLINE_VARIANT)
+
+    def _card(self, content, expand=False):
+        return ft.Container(
+            content=content,
+            bgcolor=ft.Colors.SURFACE_CONTAINER_LOWEST,
+            border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
+            border_radius=10,
+            padding=14,
+            expand=expand,
+        )
 
     # ------------------------------------------------------------------
     def setup_ui(self):
-        content = ctk.CTkFrame(self.root, fg_color="transparent")
-        content.grid(row=0, column=0, sticky="nsew", padx=28, pady=22)
-        self.root.columnconfigure(0, weight=1)
-        self.root.rowconfigure(0, weight=1)
-        content.columnconfigure(1, weight=1)
+        page = self.page
+        page.bgcolor = ft.Colors.SURFACE
 
         # ── Header ──
-        header = ctk.CTkFrame(content, fg_color="transparent")
-        header.grid(row=0, column=0, columnspan=3, sticky="ew")
-        header.columnconfigure(0, weight=1)
-
-        title_block = ctk.CTkFrame(header, fg_color="transparent")
-        title_block.grid(row=0, column=0, sticky="w")
-        ctk.CTkLabel(
-            title_block, text="File Translator",
-            font=ctk.CTkFont(size=22, weight="bold"),
-        ).pack(anchor="w")
-
-        ctk.CTkButton(
-            header, text="⚙️", width=36, height=36,
-            fg_color="transparent", hover_color=("gray85", "gray25"),
-            text_color=("gray30", "gray70"),
-            font=ctk.CTkFont(size=15),
-            command=self.open_settings,
-        ).grid(row=0, column=1, sticky="e")
-
-        self._divider(content, row=1, pady=(18, 4))
+        header = ft.Row(
+            controls=[
+                ft.Column(
+                    spacing=2,
+                    controls=[
+                        ft.Text("File Translator", size=20, weight=ft.FontWeight.W_600),
+                        ft.Text(
+                            "Documenten en scans vertalen naar platte tekst",
+                            size=12, color=ft.Colors.ON_SURFACE_VARIANT,
+                        ),
+                    ],
+                ),
+                ft.IconButton(
+                    icon=ft.Icons.SETTINGS_OUTLINED, tooltip="Instellingen",
+                    icon_color=ft.Colors.ON_SURFACE_VARIANT,
+                    on_click=self.open_settings,
+                ),
+            ],
+            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+            vertical_alignment=ft.CrossAxisAlignment.START,
+        )
 
         # ── Doeltaal ──
-        self._section_label(content, "Doeltaal", row=2)
-        self.lang_var = ctk.StringVar(value="Nederlands")
-        self.lang_menu = ctk.CTkOptionMenu(
-            content, variable=self.lang_var, values=["Nederlands", "Arabic", "English"],
-            height=36, width=200,
+        self.lang_dropdown = ft.Dropdown(
+            value="Nederlands",
+            width=240,
+            height=CONTROL_HEIGHT,
+            filled=True,
+            fill_color=ft.Colors.SURFACE_CONTAINER_LOWEST,
+            border_color=ft.Colors.OUTLINE_VARIANT,
+            border_radius=RADIUS,
+            options=[
+                ft.DropdownOption("Nederlands"),
+                ft.DropdownOption("Arabic"),
+                ft.DropdownOption("English"),
+            ],
         )
-        self.lang_menu.grid(row=3, column=0, sticky="w")
 
         # ── Documenten ──
-        self._section_label(content, "Documenten", row=4)
-        self.entry_files = ctk.CTkEntry(
-            content, placeholder_text="Kies één of meerdere bestanden...", height=36,
+        self.file_picker = ft.FilePicker()
+        page.services.append(self.file_picker)
+
+        self.files_field = ft.TextField(
+            hint_text="Nog geen bestanden gekozen",
+            read_only=True,
+            expand=True,
+            height=CONTROL_HEIGHT,
+            filled=True,
+            fill_color=ft.Colors.SURFACE_CONTAINER_LOWEST,
+            border_color=ft.Colors.OUTLINE_VARIANT,
+            border_radius=RADIUS,
+            prefix_icon=ft.Icons.DESCRIPTION_OUTLINED,
         )
-        self.entry_files.grid(row=5, column=0, columnspan=2, sticky="ew", padx=(0, 10))
-        self.entry_files.configure(state="readonly")
-        ctk.CTkButton(
-            content, text="Selecteren...", width=110, height=36, command=self.browse_files,
-        ).grid(row=5, column=2, sticky="e")
-
-        self._divider(content, row=6, pady=16)
-
-        # ── Actie: start + voortgang ──
-        action_row = ctk.CTkFrame(content, fg_color="transparent")
-        action_row.grid(row=7, column=0, columnspan=3, sticky="ew")
-        action_row.columnconfigure(1, weight=1)
-
-        self.btn_start = ctk.CTkButton(
-            action_row, text="Start Vertaling", width=150, height=38,
-            font=ctk.CTkFont(weight="bold"),
-            command=self.on_start_click,
+        self.btn_browse = ft.OutlinedButton(
+            content="Selecteren...",
+            icon=ft.Icons.FOLDER_OPEN_OUTLINED,
+            height=CONTROL_HEIGHT,
+            style=ft.ButtonStyle(shape=BTN_SHAPE, side=ft.BorderSide(1, ft.Colors.OUTLINE)),
+            on_click=self.browse_files,
         )
-        self.btn_start.grid(row=0, column=0, padx=(0, 16))
 
-        self.progress_bar = ctk.CTkProgressBar(action_row, height=8)
-        self.progress_bar.grid(row=0, column=1, sticky="ew")
-        self.progress_bar.set(0)
+        # ── Actie: start/stop + voortgang ──
+        self.btn_start = ft.FilledButton(
+            content="Start Vertaling",
+            icon=ft.Icons.PLAY_ARROW_ROUNDED,
+            height=CONTROL_HEIGHT, width=170,
+            style=ft.ButtonStyle(shape=BTN_SHAPE),
+            on_click=self.on_start_click,
+        )
+        self.btn_stop = ft.OutlinedButton(
+            content="Stop",
+            icon=ft.Icons.STOP_ROUNDED,
+            height=CONTROL_HEIGHT, width=110,
+            disabled=True,
+            style=ft.ButtonStyle(shape=BTN_SHAPE, side=ft.BorderSide(1, ft.Colors.OUTLINE)),
+            on_click=self.on_stop_click,
+        )
+        self.progress_bar = ft.ProgressBar(
+            value=0, expand=True, bar_height=6, border_radius=3,
+            color=ft.Colors.PRIMARY, bgcolor=ft.Colors.OUTLINE_VARIANT,
+        )
 
         # ── Log ──
-        self._section_label(content, "Voortgang & log", row=8, pady_top=22)
+        self.log_view = ft.ListView(expand=True, spacing=3, auto_scroll=True)
 
-        log_wrap = ctk.CTkFrame(content, corner_radius=8)
-        log_wrap.grid(row=9, column=0, columnspan=3, sticky="nsew")
-        log_wrap.columnconfigure(0, weight=1)
-        log_wrap.rowconfigure(0, weight=1)
-        content.rowconfigure(9, weight=1)
+        # ── Instellingen-dialoog (API-sleutel) ──
+        self.entry_key = ft.TextField(
+            label="API-sleutel", password=True, can_reveal_password=True,
+            hint_text="Plak hier je API-sleutel...",
+            filled=True,
+            fill_color=ft.Colors.SURFACE_CONTAINER_LOWEST,
+            border_color=ft.Colors.OUTLINE_VARIANT,
+            border_radius=RADIUS,
+            prefix_icon=ft.Icons.KEY_OUTLINED,
+        )
+        self.settings_dialog = ft.AlertDialog(
+            modal=True,
+            shape=ft.RoundedRectangleBorder(radius=12),
+            title=ft.Text("Instellingen", size=17, weight=ft.FontWeight.W_600),
+            content=ft.Container(
+                width=380,
+                content=ft.Column(
+                    tight=True, spacing=10,
+                    controls=[
+                        ft.Text(
+                            "De sleutel wordt versleuteld opgeslagen in de Windows Kluis.",
+                            size=12, color=ft.Colors.ON_SURFACE_VARIANT,
+                        ),
+                        self.entry_key,
+                    ],
+                ),
+            ),
+            actions=[
+                ft.TextButton("Sluiten", on_click=self.close_settings),
+                ft.FilledButton(
+                    "Opslaan", style=ft.ButtonStyle(shape=BTN_SHAPE),
+                    on_click=self.on_save_key_click,
+                ),
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
 
-        self.txt_log = ctk.CTkTextbox(log_wrap, font=("Consolas", 12), fg_color="transparent")
-        self.txt_log.grid(row=0, column=0, sticky="nsew", padx=12, pady=10)
-        self.txt_log.configure(state="disabled")
+        page.add(
+            ft.Column(
+                expand=True,
+                spacing=0,
+                controls=[
+                    header,
+                    ft.Container(height=18),
+                    self._hairline(),
+                    ft.Container(height=20),
 
-        self._build_settings_window()
+                    self._section_label("Doeltaal"),
+                    ft.Container(height=8),
+                    self.lang_dropdown,
+                    ft.Container(height=20),
+
+                    self._section_label("Documenten"),
+                    ft.Container(height=8),
+                    ft.Row(spacing=10, controls=[self.files_field, self.btn_browse]),
+                    ft.Container(height=22),
+
+                    ft.Row(
+                        spacing=12,
+                        controls=[self.btn_start, self.btn_stop, self.progress_bar],
+                    ),
+                    ft.Container(height=22),
+
+                    self._section_label("Voortgang & log"),
+                    ft.Container(height=8),
+                    self._card(self.log_view, expand=True),
+                ],
+            )
+        )
 
         self.log("Applicatie opgestart. Selecteer je bestanden en klik op 'Start Vertaling'.")
 
     # ------------------------------------------------------------------
-    # Instellingen-modal (bevat de API-sleutel). Wordt bij opstarten
-    # meteen aangemaakt maar verborgen, zodat entry_key altijd bestaat —
-    # main.py vult 'm namelijk direct bij het opstarten van de app.
-    # ------------------------------------------------------------------
-    def _build_settings_window(self):
-        self.settings_window = ctk.CTkToplevel(self.root)
-        self.settings_window.title("Instellingen")
-        self.settings_window.geometry("420x220")
-        self.settings_window.resizable(False, False)
-        # Aan het hoofdvenster gekoppeld houden (blijft er altijd boven op)
-        self.settings_window.transient(self.root)
-        # Sluiten via het kruisje verbergt het venster i.p.v. het te vernietigen —
-        # entry_key moet als widget blijven bestaan.
-        self.settings_window.protocol("WM_DELETE_WINDOW", self.close_settings)
-
-        wrapper = ctk.CTkFrame(self.settings_window, fg_color="transparent")
-        wrapper.pack(fill="both", expand=True, padx=24, pady=22)
-
-        ctk.CTkLabel(
-            wrapper, text="Instellingen", font=ctk.CTkFont(size=16, weight="bold"),
-        ).pack(anchor="w")
-
-        ctk.CTkLabel(
-            wrapper, text="API-SLEUTEL", font=ctk.CTkFont(size=11, weight="bold"),
-            text_color=("gray40", "gray65"),
-        ).pack(anchor="w", pady=(18, 6))
-
-        self.entry_key = ctk.CTkEntry(
-            wrapper, placeholder_text="Plak hier je API-sleutel...", show="*", height=36,
-        )
-        self.entry_key.pack(fill="x", pady=(0, 16))
-
-        btn_row = ctk.CTkFrame(wrapper, fg_color="transparent")
-        btn_row.pack(fill="x")
-        ctk.CTkButton(
-            btn_row, text="Opslaan", height=36, command=self.on_save_key_click,
-        ).pack(side="left", expand=True, fill="x", padx=(0, 8))
-        ctk.CTkButton(
-            btn_row, text="Sluiten", height=36, fg_color="transparent",
-            hover_color=("gray85", "gray25"), text_color=("gray20", "gray85"),
-            border_width=1, command=self.close_settings,
-        ).pack(side="left", expand=True, fill="x")
-
-        # Verberg meteen — dit venster bestaat alleen zodat entry_key
-        # als widget beschikbaar is; het wordt pas getoond via het ⚙-icoon.
-        self.settings_window.withdraw()
-
-    def open_settings(self):
-        self.settings_window.deiconify()
-        self.root.update_idletasks()
-        
-        # Centreer het instellingenvenster op het hoofdvenster
-        x = self.root.winfo_x() + (self.root.winfo_width() // 2) - 210
-        y = self.root.winfo_y() + (self.root.winfo_height() // 2) - 110
-        self.settings_window.geometry(f"+{max(x, 0)}+{max(y, 0)}")
-        
-        self.settings_window.lift()
-        self.settings_window.focus_force()
-        
-        # Modaal gedrag activeren
-        self.settings_window.grab_set()
-        
-        # BLOKKEER het hoofdvenster (Main loop wacht hier totdat het verborgen/gesloten is)
-        self.root.wait_window(self.settings_window)
-
-    def close_settings(self):
-        self.settings_window.grab_release()
-        self.settings_window.withdraw()
+    @property
+    def lang_var(self):
+        class _V:
+            def get(_self):
+                return self.lang_dropdown.value
+        return _V()
 
     # ------------------------------------------------------------------
-    def on_save_key_click(self):
-        api_key = self.entry_key.get().strip()
+    # Alle UI-wijzigingen lopen hierlangs. Flet stuurt updates via een
+    # asyncio.Queue naar de client; die queue is niet thread-safe en wekt
+    # de event loop niet op als je hem vanuit een gewone thread vult.
+    # Vertalen gebeurt in een achtergrondthread, dus zonder deze marshalling
+    # blijven logregels/voortgang hangen tot de loop om een andere reden
+    # wakker wordt (= log loopt achter). run_task() gebruikt intern
+    # run_coroutine_threadsafe en wekt de loop wél.
+    # ------------------------------------------------------------------
+    async def _ui_apply(self, fn):
+        fn()
+
+    def _ui(self, fn):
+        try:
+            self.page.run_task(self._ui_apply, fn)
+        except Exception:
+            # Loop nog niet beschikbaar (bijv. tijdens het opbouwen van de UI).
+            fn()
+
+    # ------------------------------------------------------------------
+    def open_settings(self, e=None):
+        self.page.show_dialog(self.settings_dialog)
+
+    def close_settings(self, e=None):
+        self.page.pop_dialog()
+
+    def on_save_key_click(self, e=None):
+        api_key = (self.entry_key.value or "").strip()
         self.save_key_callback(api_key)
 
-    def browse_files(self):
-        """Opent de verkenner om meerdere specifieke bestanden te kiezen."""
-        file_types = [
-            ("Ondersteunde bestanden", "*.pdf *.jpg *.jpeg *.png *.webp *.heic *.tiff *.tif"),
-            ("Alle bestanden", "*.*")
-        ]
-        files_selected = filedialog.askopenfilenames(title="Kies bestanden om te vertalen", filetypes=file_types)
-
+    async def browse_files(self, e=None):
+        files_selected = await self.file_picker.pick_files(
+            dialog_title="Kies bestanden om te vertalen",
+            allow_multiple=True,
+            allowed_extensions=["pdf", "jpg", "jpeg", "png", "webp", "heic", "tiff", "tif"],
+        )
         if files_selected:
-            self.selected_files = [Path(f) for f in files_selected]
+            self.selected_files = [Path(f.path) for f in files_selected]
 
-            self.entry_files.configure(state="normal")
-            self.entry_files.delete(0, 'end')
             if len(self.selected_files) == 1:
-                self.entry_files.insert(0, self.selected_files[0].name)
+                self.files_field.value = self.selected_files[0].name
             else:
-                self.entry_files.insert(0, f"{len(self.selected_files)} bestanden geselecteerd")
-            self.entry_files.configure(state="readonly")
+                self.files_field.value = f"{len(self.selected_files)} bestanden geselecteerd"
+            self.files_field.update()
 
             self.log(f"📁 {len(self.selected_files)} bestand(en) geselecteerd voor vertaling.")
 
     def log(self, message: str):
-        def append():
-            self.txt_log.configure(state="normal")
-            self.txt_log.insert("end", message + "\n")
-            self.txt_log.see("end")
-            self.txt_log.configure(state="disabled")
-        self.root.after(0, append)
+        def apply():
+            self.log_view.controls.append(
+                ft.Text(
+                    message, font_family="Consolas", size=12, selectable=True,
+                    color=ft.Colors.ON_SURFACE,
+                )
+            )
+            if len(self.log_view.controls) > MAX_LOG_LINES:
+                del self.log_view.controls[:-MAX_LOG_LINES]
+            self.log_view.update()
 
-    def on_start_click(self):
+        self._ui(apply)
+
+    def on_start_click(self, e=None):
         if not self.selected_files:
             self.show_error("Geen bestanden", "Selecteer a.u.b. eerst één of meerdere bestanden via de 'Selecteren...' knop.")
             return
         self.start_callback(self.selected_files)
 
+    def on_stop_click(self, e=None):
+        if self.stop_callback:
+            self.stop_callback()
+        self.btn_stop.disabled = True
+        self.btn_stop.content = "Stoppen..."
+        self.btn_stop.update()
+
     def set_busy(self, busy: bool):
-        if busy:
-            self.btn_start.configure(state="disabled", text="Bezig...")
-        else:
-            self.btn_start.configure(state="normal", text="Start Vertaling")
+        def apply():
+            if busy:
+                self.btn_start.disabled = True
+                self.btn_start.content = "Bezig..."
+                self.btn_stop.disabled = False
+                self.btn_stop.content = "Stop"
+            else:
+                self.btn_start.disabled = False
+                self.btn_start.content = "Start Vertaling"
+                self.btn_stop.disabled = True
+                self.btn_stop.content = "Stop"
+            self.btn_start.update()
+            self.btn_stop.update()
+
+        self._ui(apply)
 
     def update_progress(self, current: int, total: int):
-        if total > 0:
-            self.progress_bar.set(current / total)
+        if total <= 0:
+            return
+
+        def apply():
+            self.progress_bar.value = current / total
+            self.progress_bar.update()
+
+        self._ui(apply)
+
+    def _alert(self, title, msg, on_yes=None, on_no=None):
+        def close(e=None):
+            self.page.pop_dialog()
+
+        actions = []
+        if on_yes is not None:
+            def yes_click(e):
+                close()
+                on_yes()
+
+            def no_click(e):
+                close()
+                if on_no:
+                    on_no()
+
+            actions = [
+                ft.TextButton("Nee", on_click=no_click),
+                ft.ElevatedButton("Ja", on_click=yes_click),
+            ]
+        else:
+            actions = [ft.ElevatedButton("OK", on_click=close)]
+
+        dialog = ft.AlertDialog(modal=True, title=ft.Text(title), content=ft.Text(msg), actions=actions)
+        self._ui(lambda: self.page.show_dialog(dialog))
 
     def show_error(self, title, msg):
-        messagebox.showerror(title, msg)
+        self._alert(title, msg)
 
     def show_info(self, title, msg):
-        messagebox.showinfo(title, msg)
+        self._alert(title, msg)
+
+    def ask_yes_no(self, title, msg, on_yes):
+        self._alert(title, msg, on_yes=on_yes)

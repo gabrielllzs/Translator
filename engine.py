@@ -45,16 +45,20 @@ class GeminiTranslator:
     # ------------------------------------------------------------------
     # Publieke methode: vertaalt één bronbestand (evt. in meerdere delen)
     # ------------------------------------------------------------------
-    def translate_single_file(self, src_path: Path, dest_path: Path, target_language: str = "Nederlands", log_callback=None) -> bool:
+    def translate_single_file(self, src_path: Path, dest_path: Path, target_language: str = "Nederlands", log_callback=None, cancel_event=None) -> bool:
         """Uploadt, vertaalt (evt. in delen) en verwijdert een bestand via Gemini."""
         def _log(msg):
             if log_callback:
                 log_callback(msg)
 
+        if cancel_event is not None and cancel_event.is_set():
+            _log("   ⏹ Gestopt.")
+            return False
+
         if src_path.suffix.lower() == ".pdf":
             page_count = self._get_pdf_page_count(src_path, _log)
             if page_count and page_count > PAGES_PER_CHUNK:
-                return self._translate_large_pdf(src_path, dest_path, target_language, page_count, _log)
+                return self._translate_large_pdf(src_path, dest_path, target_language, page_count, _log, cancel_event)
 
         # Klein bestand (of geen PDF): gewoon in één keer verwerken.
         translated_text = self._translate_chunk(src_path, target_language, _log)
@@ -80,7 +84,7 @@ class GeminiTranslator:
             _log(f"   ⚠️ Kon paginatelling niet bepalen ({e}), probeer bestand in één keer te verwerken.")
             return None
 
-    def _translate_large_pdf(self, src_path: Path, dest_path: Path, target_language: str, page_count: int, _log) -> bool:
+    def _translate_large_pdf(self, src_path: Path, dest_path: Path, target_language: str, page_count: int, _log, cancel_event=None) -> bool:
         total_chunks = (page_count + PAGES_PER_CHUNK - 1) // PAGES_PER_CHUNK
         _log(f"   -> Groot document gedetecteerd ({page_count} pagina's). "
              f"Wordt in {total_chunks} delen van max. {PAGES_PER_CHUNK} pagina's verwerkt.")
@@ -92,6 +96,10 @@ class GeminiTranslator:
             tmp_dir_path = Path(tmp_dir)
 
             for chunk_idx in range(total_chunks):
+                if cancel_event is not None and cancel_event.is_set():
+                    _log(f"   ⏹ Gestopt na deel {chunk_idx}/{total_chunks}.")
+                    return False
+
                 start = chunk_idx * PAGES_PER_CHUNK
                 end = min(start + PAGES_PER_CHUNK, page_count)
 
@@ -126,6 +134,7 @@ class GeminiTranslator:
         try:
             mime_type = "application/pdf" if src_path.suffix.lower() == ".pdf" else None
 
+            t_upload_start = time.time()
             _log(f"   -> Uploaden naar Vertaal-Engine ({src_path.name})")
             upload_kwargs = {"file": src_path}
             if mime_type:
@@ -147,7 +156,7 @@ class GeminiTranslator:
                      + (f" | Detail: {error_detail}" if error_detail else ""))
                 return None
 
-            _log("   -> Bestand is succesvol verwerkt. Bezig met vertalen...")
+            _log(f"   -> Bestand is succesvol verwerkt in {time.time() - t_upload_start:.1f}s. Bezig met vertalen...")
 
             system_instruction = GEMINI_SYSTEM_TEMPLATE.format(target_language=target_language)
             formatted_user_prompt = USER_PROMPT.format(target_language=target_language)
@@ -170,6 +179,7 @@ class GeminiTranslator:
                 )
             ]
 
+            t_gen_start = time.time()
             try:
                 response = self.client.models.generate_content(
                     model=self.model_name,
@@ -185,6 +195,8 @@ class GeminiTranslator:
                 _log(f"   ❌ FOUT tijdens vertaal-aanroep (generate_content): {detail}")
                 _log(f"      Bestand URI: {uploaded_file.uri} | mime_type: {uploaded_file.mime_type}")
                 return None
+
+            _log(f"   -> Vertaling ontvangen in {time.time() - t_gen_start:.1f}s.")
 
             translated_text = (response.text or "").strip()
             if not translated_text:
