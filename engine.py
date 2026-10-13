@@ -32,13 +32,13 @@ except ImportError:
 # Zichtbare modelnaam in de UI -> technische modelnaam achter de schermen.
 # De UI toont bewust alleen "Vertaler-nieuw" / "Vertaler-oud", nooit de onderliggende naam.
 TRANSLATION_MODELS = {
-    "Vertaler-nieuw": "gemini-3.6-flash",
+    "Vertaler-nieuw": "gemini-3.8-flash",
     "Vertaler-oud": "gemini-3.5-flash-lite",
 }
 DEFAULT_MODEL_LABEL = "Vertaler-oud"
 # Hoeveel het model "nadenkt" per model. Bij "low" liet gemini-3.6-flash in
 # tests geregeld tabelcellen onvertaald; "medium" loste dat op.
-THINKING_LEVELS = {"gemini-3.6-flash": "medium"}
+THINKING_LEVELS = {"gemini-3.6-flash": "medium", "gemini-3.8-flash": "medium"}
 _DEFAULT_MODEL = TRANSLATION_MODELS[DEFAULT_MODEL_LABEL]
 # Tekstbestanden worden niet geüpload maar direct als tekst meegestuurd.
 TEXT_EXTENSIONS = {".txt"}
@@ -85,6 +85,8 @@ GEMINI_SYSTEM_TEMPLATE = """You are a professional translator (legal, official, 
 - Never start the output with meta phrases (e.g., "De vertaling:", "The translation is:").
 - No preambles or notes.
 - Stay faithful: do not invent facts, names, dates, or places. Preserve numbers and dates exactly.
+- Reference numbers, street addresses, e-mail and web addresses: copy them exactly as written in the original. Names of people: keep the original spelling; when the output script differs from the original (e.g. Arabic), write the name in the target script followed once by the original spelling in parentheses, e.g. مراد القاسمي (Moraad EL KASMI).
+- Do not decorate the text: no kashida/tatweel stretching, no added explanations or alternative translations in parentheses.
 - Reproduce the document's structure with simple Markdown, top-to-bottom, following the document's layout flow:
   - `#` for the main document title, `##` for section headings. Only use headings for real titles/headings.
   - `**bold**` for text that is bold or clearly emphasised in the original, `*italic*` for italic text.
@@ -113,6 +115,7 @@ Rules:
 - Some segments contain markers like <r1>...</r1>, <r2>...</r2>. They mark parts with their own formatting (for example a bold word).
   Keep every marker exactly once, with the translation of that part inside it. You may change the order of the markers if the grammar of {target_language} requires it. Never add new markers.
 - Stay faithful: do not invent facts, names, dates, or places. Preserve numbers, dates, codes, and reference numbers exactly.
+- Keep names of people, street addresses, e-mail and web addresses exactly as written. When the output script differs (e.g. Arabic), write a person's name in the target script followed by the original spelling in parentheses.
 - If a segment is already in {target_language}, return it unchanged.
 - The text may come from OCR and contain recognition errors (e.g. "warden" for "worden", "coca'ine" for "cocaïne"). Translate what is clearly meant, but copy names, numbers, and references exactly as written.
 - No explanations, notes, or preambles."""
