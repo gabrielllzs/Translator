@@ -20,11 +20,17 @@ from interface import TranslatorUI
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
 # ── CONFIGURATIE VOOR AFSTANDSBEDIENING / UPDATES ──
-CURRENT_VERSION = "1.3.0"
+CURRENT_VERSION = "1.3.1"
 VERSION_URL = "https://raw.githubusercontent.com/gabrielllzs/Translator/refs/heads/main/version.json"
 
 class MainController:
     def __init__(self):
+        # Eigen app-ID, zodat Windows in de taakbalk ons icoon toont i.p.v. dat van Python.
+        try:
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("SyncIT.FileTranslator")
+        except Exception:
+            pass
         self.root = ctk.CTk()
         self.ui = TranslatorUI(self.root, self.handle_start_translation, self.handle_save_api_key, self.handle_download)
 

@@ -2,7 +2,14 @@ import customtkinter as ctk
 from tkinter import filedialog, messagebox
 from pathlib import Path
 
+from PIL import Image
+
 from engine import TRANSLATION_MODELS, DEFAULT_MODEL_LABEL, OUTPUT_FORMATS, DEFAULT_OUTPUT_FORMAT
+
+# SyncIT-logo als app-icoon (venster, taakbalk) en naast de titel.
+ASSETS_DIR = Path(__file__).resolve().parent / "assets"
+ICON_ICO = ASSETS_DIR / "app.ico"
+ICON_PNG = ASSETS_DIR / "icon.png"
 
 # Thema instellingen (Opties: "System", "Dark", "Light")
 ctk.set_appearance_mode("System")
@@ -21,6 +28,8 @@ class TranslatorUI:
 
         self.root.title("File Translator")
         self.root.minsize(700, 480)
+        if ICON_ICO.exists():
+            self.root.iconbitmap(str(ICON_ICO))
 
         self.setup_ui()
         self._center_window()
@@ -72,10 +81,13 @@ class TranslatorUI:
 
         title_block = ctk.CTkFrame(header, fg_color="transparent")
         title_block.grid(row=0, column=0, sticky="w")
+        if ICON_PNG.exists():
+            logo = ctk.CTkImage(Image.open(ICON_PNG), size=(32, 32))
+            ctk.CTkLabel(title_block, image=logo, text="").pack(side="left", padx=(0, 12))
         ctk.CTkLabel(
             title_block, text="File Translator",
             font=ctk.CTkFont(size=22, weight="bold"),
-        ).pack(anchor="w")
+        ).pack(side="left")
 
         ctk.CTkButton(
             header, text="⚙️", width=36, height=36,
@@ -175,6 +187,8 @@ class TranslatorUI:
         self.settings_window.title("Instellingen")
         self.settings_window.geometry("420x220")
         self.settings_window.resizable(False, False)
+        if ICON_ICO.exists():
+            self.settings_window.iconbitmap(str(ICON_ICO))
         # Aan het hoofdvenster gekoppeld houden (blijft er altijd boven op)
         self.settings_window.transient(self.root)
         # Sluiten via het kruisje verbergt het venster i.p.v. het te vernietigen —
