@@ -2,6 +2,8 @@ import customtkinter as ctk
 from tkinter import filedialog, messagebox
 from pathlib import Path
 
+from engine import TRANSLATION_MODELS, DEFAULT_MODEL_LABEL, OUTPUT_FORMATS, DEFAULT_OUTPUT_FORMAT
+
 # Thema instellingen (Opties: "System", "Dark", "Light")
 ctk.set_appearance_mode("System")
 # Kleurenschema (Opties: "blue", "green", "dark-blue")
@@ -9,30 +11,47 @@ ctk.set_default_color_theme("blue")
 
 
 class TranslatorUI:
-    def __init__(self, root, start_callback, save_key_callback):
+    def __init__(self, root, start_callback, save_key_callback, download_callback):
         self.root = root
         self.start_callback = start_callback
         self.save_key_callback = save_key_callback
+        self.download_callback = download_callback
 
         self.selected_files = []
 
         self.root.title("File Translator")
-        self.root.geometry("760x580")
-        self.root.minsize(640, 480)
+        self.root.minsize(700, 480)
 
         self.setup_ui()
+        self._center_window()
+
+    def _center_window(self):
+        """Open het venster midden op het scherm, ongeveer zo groot als de Verkenner
+        (die neemt zo'n 57% van de breedte en 60% van de hoogte van het scherm)."""
+        # CustomTkinter vergroot breedte/hoogte met de Windows-schaal, de positie niet.
+        scale = self.root._get_window_scaling()
+        screen_w, screen_h = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
+        width = max(int(screen_w * 0.57 / scale), 700)
+        height = max(int(screen_h * 0.60 / scale), 480)
+        x = max((screen_w - round(width * scale)) // 2, 0)
+        # Iets boven het midden, zodat de taakbalk het venster niet raakt.
+        y = max((screen_h - round(height * scale)) // 2 - 20, 0)
+        self.root.geometry(f"{width}x{height}+{x}+{y}")
 
     # ------------------------------------------------------------------
     # Kleine helper om een sectiekopje te tekenen (label in kapitalen).
     # Vervangt de losse omkaderde frames door een lichtere structuur.
     # ------------------------------------------------------------------
     def _section_label(self, parent, text, row, pady_top=18):
-        lbl = ctk.CTkLabel(
+        lbl = self._option_label(parent, text)
+        lbl.grid(row=row, column=0, columnspan=3, sticky="w", pady=(pady_top, 6))
+
+    def _option_label(self, parent, text):
+        return ctk.CTkLabel(
             parent, text=text.upper(),
             font=ctk.CTkFont(size=11, weight="bold"),
             text_color=("gray40", "gray65"),
         )
-        lbl.grid(row=row, column=0, columnspan=3, sticky="w", pady=(pady_top, 6))
 
     def _divider(self, parent, row, pady=16):
         line = ctk.CTkFrame(parent, height=1, fg_color=("gray80", "gray30"), corner_radius=0)
@@ -68,14 +87,30 @@ class TranslatorUI:
 
         self._divider(content, row=1, pady=(18, 4))
 
-        # ── Doeltaal ──
-        self._section_label(content, "Doeltaal", row=2)
+        # ── Opties: doeltaal, vertaalmodel en uitvoer naast elkaar ──
+        options_row = ctk.CTkFrame(content, fg_color="transparent")
+        options_row.grid(row=2, column=0, columnspan=3, sticky="ew")
+        for col in range(3):
+            options_row.columnconfigure(col, weight=1, uniform="options")
+
         self.lang_var = ctk.StringVar(value="Nederlands")
-        self.lang_menu = ctk.CTkOptionMenu(
-            content, variable=self.lang_var, values=["Nederlands", "Arabic", "English"],
-            height=36, width=200,
+        self.model_var = ctk.StringVar(value=DEFAULT_MODEL_LABEL)
+        # Uitvoer: alleen tekst (klant doet zelf de opmaak), Word, of layout behouden.
+        self.output_var = ctk.StringVar(value=DEFAULT_OUTPUT_FORMAT)
+
+        options = (
+            ("Doeltaal", self.lang_var, ["Nederlands", "Arabic", "English"]),
+            ("Vertaalmodel", self.model_var, list(TRANSLATION_MODELS)),
+            ("Uitvoer", self.output_var, list(OUTPUT_FORMATS)),
         )
-        self.lang_menu.grid(row=3, column=0, sticky="w")
+        menus = []
+        for col, (label, variable, values) in enumerate(options):
+            pad = (0 if col == 0 else 6, 0 if col == 2 else 6)
+            self._option_label(options_row, label).grid(row=0, column=col, sticky="w", padx=pad, pady=(18, 6))
+            menu = ctk.CTkOptionMenu(options_row, variable=variable, values=values, height=36)
+            menu.grid(row=1, column=col, sticky="ew", padx=pad)
+            menus.append(menu)
+        self.lang_menu, self.model_menu, self.output_menu = menus
 
         # ── Documenten ──
         self._section_label(content, "Documenten", row=4)
@@ -105,6 +140,13 @@ class TranslatorUI:
         self.progress_bar = ctk.CTkProgressBar(action_row, height=8)
         self.progress_bar.grid(row=0, column=1, sticky="ew")
         self.progress_bar.set(0)
+
+        # Pas actief zodra er vertalingen klaarstaan in de tijdelijke map.
+        self.btn_download = ctk.CTkButton(
+            action_row, text="⬇ Downloaden", width=140, height=38,
+            state="disabled", command=self.download_callback,
+        )
+        self.btn_download.grid(row=0, column=2, padx=(16, 0))
 
         # ── Log ──
         self._section_label(content, "Voortgang & log", row=8, pady_top=22)
@@ -201,7 +243,7 @@ class TranslatorUI:
     def browse_files(self):
         """Opent de verkenner om meerdere specifieke bestanden te kiezen."""
         file_types = [
-            ("Ondersteunde bestanden", "*.pdf *.jpg *.jpeg *.png *.webp *.heic *.tiff *.tif"),
+            ("Ondersteunde bestanden", "*.pdf *.docx *.txt *.jpg *.jpeg *.png *.webp *.heic *.tiff *.tif"),
             ("Alle bestanden", "*.*")
         ]
         files_selected = filedialog.askopenfilenames(title="Kies bestanden om te vertalen", filetypes=file_types)
@@ -236,12 +278,16 @@ class TranslatorUI:
     def set_busy(self, busy: bool):
         if busy:
             self.btn_start.configure(state="disabled", text="Bezig...")
+            self.btn_download.configure(state="disabled")
         else:
             self.btn_start.configure(state="normal", text="Start Vertaling")
 
     def update_progress(self, current: int, total: int):
         if total > 0:
             self.progress_bar.set(current / total)
+
+    def set_download_available(self, available: bool):
+        self.btn_download.configure(state="normal" if available else "disabled")
 
     def show_error(self, title, msg):
         messagebox.showerror(title, msg)

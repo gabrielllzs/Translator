@@ -1,8 +1,10 @@
 import os
+import shutil
+import tempfile
 import threading
 import time
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import filedialog, messagebox
 import customtkinter as ctk
 from pathlib import Path
 from dotenv import load_dotenv
@@ -12,22 +14,32 @@ import keyring
 
 
 # Importeer onze eigen modules
-from engine import GeminiTranslator, SUPPORTED_EXTENSIONS
+from engine import GeminiTranslator, SUPPORTED_EXTENSIONS, TRANSLATION_MODELS, DEFAULT_MODEL_LABEL, OUTPUT_FORMATS, DEFAULT_OUTPUT_FORMAT
 from interface import TranslatorUI
 
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
 # ── CONFIGURATIE VOOR AFSTANDSBEDIENING / UPDATES ──
-CURRENT_VERSION = "1.2.1"  
+CURRENT_VERSION = "1.3.0"
 VERSION_URL = "https://raw.githubusercontent.com/gabrielllzs/Translator/refs/heads/main/version.json"
 
 class MainController:
     def __init__(self):
         self.root = ctk.CTk()
-        self.ui = TranslatorUI(self.root, self.handle_start_translation, self.handle_save_api_key)
+        self.ui = TranslatorUI(self.root, self.handle_start_translation, self.handle_save_api_key, self.handle_download)
+
+        # Vertalingen komen eerst in een tijdelijke map terecht; de gebruiker
+        # kiest daarna zelf via "Downloaden" waar ze naartoe gaan.
+        self.temp_dir = Path(tempfile.mkdtemp(prefix="translator_"))
+        self.translated_files: list[Path] = []
+        self.results_saved = True
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         
         self.config_path = Path.home() / ".translator_config.json"
         self._load_saved_api_key()
+        self._load_saved_model()
+        self.ui.model_var.trace_add("write", lambda *_: self._update_config(model=self.ui.model_var.get()))
+        self.ui.output_var.trace_add("write", lambda *_: self._update_config(output_format=self.ui.output_var.get()))
         
         threading.Thread(target=self._check_for_updates, daemon=True).start()
 
@@ -39,6 +51,32 @@ class MainController:
                 self.ui.entry_key.insert(0, saved_key)
         except Exception as e:
             print(f"Kon sleutel niet veilig laden: {e}")
+
+    def _read_config(self) -> dict:
+        try:
+            with open(self.config_path, "r") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+
+    def _update_config(self, **values):
+        """Werk losse velden in het configbestand bij zonder de rest te overschrijven."""
+        config = self._read_config()
+        config.update(values)
+        try:
+            with open(self.config_path, "w") as f:
+                json.dump(config, f)
+        except Exception:
+            pass
+
+    def _load_saved_model(self):
+        """Zet het vertaalmodel terug op wat de gebruiker de vorige keer koos."""
+        saved_model = self._read_config().get("model")
+        if saved_model in TRANSLATION_MODELS:
+            self.ui.model_var.set(saved_model)
+        saved_output = self._read_config().get("output_format")
+        if saved_output in OUTPUT_FORMATS:
+            self.ui.output_var.set(saved_output)
 
     def handle_save_api_key(self, api_key):
         if not api_key:
@@ -55,6 +93,61 @@ class MainController:
             
     def run(self):
         self.root.mainloop()
+
+    def _on_close(self):
+        if not self.results_saved:
+            if not messagebox.askyesno(
+                "Niet opgeslagen",
+                "Er zijn vertalingen die je nog niet hebt gedownload.\n\nToch afsluiten? De vertalingen gaan dan verloren.",
+            ):
+                return
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+        self.root.destroy()
+
+    def handle_download(self):
+        """Laat de gebruiker kiezen waar de vertaalde bestanden naartoe gaan."""
+        files = [f for f in self.translated_files if f.exists()]
+        if not files:
+            messagebox.showwarning("Geen vertalingen", "Er zijn nog geen vertaalde bestanden om te downloaden.")
+            return
+
+        if len(files) == 1:
+            src = files[0]
+            target = filedialog.asksaveasfilename(
+                title="Vertaling opslaan als",
+                initialfile=src.name,
+                defaultextension=src.suffix,
+                filetypes=[(f"{src.suffix.upper().lstrip('.')}-bestand", f"*{src.suffix}"), ("Alle bestanden", "*.*")],
+            )
+            if not target:
+                return
+            targets = [(src, Path(target))]
+            location = Path(target)
+        else:
+            folder = filedialog.askdirectory(title="Kies een map voor de vertalingen")
+            if not folder:
+                return
+            folder = Path(folder)
+            existing = [f.name for f in files if (folder / f.name).exists()]
+            if existing and not messagebox.askyesno(
+                "Bestanden overschrijven?",
+                f"{len(existing)} bestand(en) bestaan al in deze map:\n"
+                + "\n".join(existing[:5]) + ("\n..." if len(existing) > 5 else "")
+                + "\n\nOverschrijven?",
+            ):
+                return
+            targets = [(f, folder / f.name) for f in files]
+            location = folder
+
+        try:
+            for src, dest in targets:
+                shutil.copy2(src, dest)
+        except Exception as e:
+            messagebox.showerror("Fout", f"Kon de vertalingen niet opslaan: {e}")
+            return
+
+        self.results_saved = True
+        self.ui.log(f"💾 {len(targets)} bestand(en) opgeslagen in: {location}")
 
     def _check_for_updates(self):
         try:
@@ -106,11 +199,12 @@ class MainController:
             self.ui.set_busy(False) 
             return
 
-        # AUTOMATISCHE MAP GENERATIE:
-        # We pakken de map van het allereerste geselecteerde bestand en maken daar 'bestanden_vertaald' aan
-        base_dir = selected_files[0].parent
-        output_dir = base_dir / "bestanden_vertaald"
+        # Elke nieuwe vertaalronde begint met een lege tijdelijke map.
+        output_dir = self.temp_dir / "vertaald"
+        shutil.rmtree(output_dir, ignore_errors=True)
         output_dir.mkdir(parents=True, exist_ok=True)
+        self.translated_files = []
+        self.results_saved = True
 
         # Haal de sleutel op uit het invoerveld van de UI
         api_key = self.ui.entry_key.get().strip()
@@ -124,15 +218,15 @@ class MainController:
             self.ui.set_busy(False)
             return
         
-        try:
-            with open(self.config_path, "w") as f:
-                json.dump({"api_key": api_key}, f)
-        except Exception:
-            pass
+        self._update_config(api_key=api_key)
 
-        model_name = "gemini-3.1-flash-lite"
+        model_label = self.ui.model_var.get()
+        model_name = TRANSLATION_MODELS.get(model_label, TRANSLATION_MODELS[DEFAULT_MODEL_LABEL])
 
-        self.ui.log(f"🚀 Starten met {len(selected_files)} bestand(en)...")
+        output_label = self.ui.output_var.get()
+        output_format = OUTPUT_FORMATS.get(output_label, OUTPUT_FORMATS[DEFAULT_OUTPUT_FORMAT])
+
+        self.ui.log(f"🚀 Starten met {len(selected_files)} bestand(en) via {model_label} — uitvoer: {output_label}...")
         self.ui.update_progress(0, len(selected_files))
 
         try:
@@ -146,25 +240,31 @@ class MainController:
         
         for idx, src_file in enumerate(selected_files, 1):
             self.ui.log(f"\n[{idx}/{len(selected_files)}] Verwerken: {src_file.name}")
+            # De engine past de extensie aan (.txt, .docx of .pdf).
             dest_file = output_dir / f"{src_file.stem}_{target_lang}.txt"
 
-            success = translator.translate_single_file(
+            result_file = translator.translate_single_file(
                 src_file, 
                 dest_file, 
                 target_language=target_lang,
-                log_callback=self.ui.log
+                log_callback=self.ui.log,
+                output_format=output_format,
             )
             
-            if success:
+            if result_file:
                 success_count += 1
+                self.translated_files.append(result_file)
             
             self.ui.update_progress(idx, len(selected_files))
             time.sleep(0.5)
 
         self.ui.log(f"\n{'='*40}\n🎉 Klaar! {success_count} van de {len(selected_files)} bestanden succesvol vertaald.")
-        self.ui.log(f"📂 Locatie: {output_dir}")
-        self.ui.show_info("Klaar", f"Vertaling voltooid!\n{success_count} bestanden opgeslagen in de map:\n{output_dir.name}")
         self.ui.set_busy(False)
+        if success_count:
+            self.results_saved = False
+            self.ui.log("⬇ Klik op 'Downloaden' om te kiezen waar je de vertaling(en) wilt opslaan.")
+            self.root.after(0, lambda: self.ui.set_download_available(True))
+            self.ui.show_info("Klaar", f"Vertaling voltooid!\n{success_count} van de {len(selected_files)} bestanden vertaald.\n\nKlik op 'Downloaden' om ze op te slaan.")
 
 if __name__ == "__main__":
     controller = MainController()
