@@ -1,4 +1,7 @@
+import hashlib
 import json
+import os
+import shutil
 import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -74,6 +77,19 @@ PARALLEL_BATCHES = 4
 # vertaling, dus een groot PDF-bestand moet in stukken gesplitst worden om
 # zowel de input- als output-limieten niet te overschrijden.
 PAGES_PER_CHUNK = 20
+
+# Een mislukt deel wordt eerst nog een paar keer opnieuw geprobeerd (met wachttijd),
+# daarna in kleinere stukken. Klaar gemaakte delen worden bewaard, zodat een
+# nieuwe poging met hetzelfde bestand verdergaat waar het misging.
+CHUNK_RETRY_WAITS = (10, 30)
+PARTS_CACHE_DIR = Path(os.environ.get("LOCALAPPDATA") or Path.home()) / "Translator" / "voortgang"
+_FAILED_PAGE_PREFIX = "*[Pagina "
+
+
+def _all_failed(text: str) -> bool:
+    """True als een vertaald stuk alleen uit meldingen 'pagina kon niet vertaald worden' bestaat."""
+    pages = [p.strip() for p in text.split(PAGE_MARKER)]
+    return all(p.startswith(_FAILED_PAGE_PREFIX) for p in pages)
 
 GEMINI_SYSTEM_TEMPLATE = """You are a professional translator (legal, official, and documentary use).
 
@@ -187,6 +203,12 @@ class GeminiTranslator:
 
         # Klein bestand (of geen PDF): gewoon in één keer verwerken.
         translated_text = self._translate_chunk(src_path, target_language, _log)
+        for wait in CHUNK_RETRY_WAITS:
+            if translated_text is not None:
+                break
+            _log(f"   🔁 Opnieuw proberen over {wait} seconden...")
+            time.sleep(wait)
+            translated_text = self._translate_chunk(src_path, target_language, _log)
         if translated_text is None:
             return False
 
@@ -509,43 +531,110 @@ class GeminiTranslator:
                 translations.update(zip(batch, result))
         return translations
 
+    def _parts_cache(self, src_path: Path, target_language: str) -> Path:
+        """Map met de al vertaalde delen van dit bestand (zelfde inhoud, taal en model)."""
+        digest = hashlib.sha1()
+        with open(src_path, "rb") as f:
+            for block in iter(lambda: f.read(1 << 20), b""):
+                digest.update(block)
+        digest.update(f"|{target_language}|{self.model_name}|{PAGES_PER_CHUNK}".encode())
+        # Voortgang van vertalingen die nooit zijn afgemaakt na 30 dagen opruimen.
+        if PARTS_CACHE_DIR.exists():
+            for old in PARTS_CACHE_DIR.iterdir():
+                if time.time() - old.stat().st_mtime > 30 * 86400:
+                    shutil.rmtree(old, ignore_errors=True)
+        return PARTS_CACHE_DIR / digest.hexdigest()[:20]
+
     def _translate_large_pdf(self, src_path: Path, dest_path: Path, target_language: str, page_count: int, _log) -> bool:
         total_chunks = (page_count + PAGES_PER_CHUNK - 1) // PAGES_PER_CHUNK
         _log(f"   -> Groot document gedetecteerd ({page_count} pagina's). "
              f"Wordt in {total_chunks} delen van max. {PAGES_PER_CHUNK} pagina's verwerkt.")
 
         reader = PdfReader(str(src_path))
-        translated_parts = []
+        cache_dir = self._parts_cache(src_path, target_language)
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        done = [i for i in range(total_chunks) if (cache_dir / f"deel{i + 1}.txt").exists()]
+        if done:
+            _log(f"   ♻️ {len(done)} van de {total_chunks} delen waren bij een eerdere poging al vertaald; "
+                 "die worden overgeslagen.")
 
+        translated_parts = []
         with tempfile.TemporaryDirectory(prefix="translator_chunks_") as tmp_dir:
             tmp_dir_path = Path(tmp_dir)
 
             for chunk_idx in range(total_chunks):
                 start = chunk_idx * PAGES_PER_CHUNK
                 end = min(start + PAGES_PER_CHUNK, page_count)
+                cached = cache_dir / f"deel{chunk_idx + 1}.txt"
+                if cached.exists():
+                    translated_parts.append(cached.read_text(encoding="utf-8"))
+                    continue
 
                 _log(f"\n   [Deel {chunk_idx + 1}/{total_chunks}] Pagina's {start + 1}-{end}")
-
-                writer = PdfWriter()
-                for page_num in range(start, end):
-                    writer.add_page(reader.pages[page_num])
-
-                chunk_path = tmp_dir_path / f"{src_path.stem}_part{chunk_idx + 1}.pdf"
-                with open(chunk_path, "wb") as f:
-                    writer.write(f)
-
-                chunk_text = self._translate_chunk(chunk_path, target_language, _log)
+                chunk_text = self._translate_page_range(reader, start, end, src_path, tmp_dir_path,
+                                                        target_language, _log)
                 if chunk_text is None:
-                    _log(f"   ❌ Deel {chunk_idx + 1}/{total_chunks} is mislukt. Vertaling wordt afgebroken.")
+                    _log(f"   ❌ Deel {chunk_idx + 1}/{total_chunks} is mislukt. Vertaling wordt gestopt.")
+                    _log(f"   💾 De {len(translated_parts)} vertaalde delen zijn bewaard. Start de vertaling "
+                         "later opnieuw met hetzelfde bestand, taal en model: dan gaat hij verder vanaf "
+                         f"deel {chunk_idx + 1}.")
                     return False
 
+                cached.write_text(chunk_text, encoding="utf-8")
                 translated_parts.append(chunk_text)
                 time.sleep(0.5)
 
         # Elk deel begint op een nieuwe pagina van het origineel.
         full_text = f"\n{PAGE_MARKER}\n".join(translated_parts)
         _log(f"\n   -> Alle {total_chunks} delen samengevoegd.")
-        return self._save_translation(full_text, src_path, dest_path, target_language, _log)
+        ok = self._save_translation(full_text, src_path, dest_path, target_language, _log)
+        if ok:
+            shutil.rmtree(cache_dir, ignore_errors=True)
+        return ok
+
+    def _translate_page_range(self, reader, start: int, end: int, src_path: Path, tmp_dir: Path,
+                              target_language: str, _log, retry: bool = True) -> str | None:
+        """Vertaal pagina start..end-1. Bij een fout: opnieuw proberen, daarna in twee helften.
+
+        Lukt een losse pagina echt niet, dan komt er een melding op die plek in de
+        vertaling en gaat de rest gewoon door. None als het probleem niet aan
+        bepaalde pagina's ligt (bijv. geen internet of ongeldige API-sleutel).
+        """
+        writer = PdfWriter()
+        for page_num in range(start, end):
+            writer.add_page(reader.pages[page_num])
+        chunk_path = tmp_dir / f"{src_path.stem}_p{start + 1}-{end}.pdf"
+        with open(chunk_path, "wb") as f:
+            writer.write(f)
+
+        text = self._translate_chunk(chunk_path, target_language, _log)
+        # Alleen het hele deel wordt met wachttijd herhaald; de kleinere stukken één keer.
+        for wait in CHUNK_RETRY_WAITS if retry else ():
+            if text is not None:
+                break
+            _log(f"   🔁 Opnieuw proberen over {wait} seconden (pagina's {start + 1}-{end})...")
+            time.sleep(wait)
+            text = self._translate_chunk(chunk_path, target_language, _log)
+        if text is not None:
+            return text
+
+        if end - start == 1:
+            _log(f"   ⚠️ Pagina {start + 1} kon niet vertaald worden; er komt een melding op die plek.")
+            return f"{_FAILED_PAGE_PREFIX}{start + 1} kon niet automatisch vertaald worden]*"
+
+        middle = (start + end) // 2
+        _log(f"   ✂️ Pagina's {start + 1}-{end} worden in twee kleinere delen geprobeerd...")
+        first = self._translate_page_range(reader, start, middle, src_path, tmp_dir, target_language, _log, False)
+        if first is None:
+            return None
+        if retry and middle - start > 1 and _all_failed(first):
+            # Geen enkele pagina van de eerste helft lukt: waarschijnlijk een algemeen
+            # probleem (internet, sleutel, quota), niet deze pagina's. Stoppen.
+            return None
+        second = self._translate_page_range(reader, middle, end, src_path, tmp_dir, target_language, _log, False)
+        if second is None:
+            return None
+        return f"{first}\n{PAGE_MARKER}\n{second}"
 
     # ------------------------------------------------------------------
     # Eén bestand (of PDF-deel) uploaden en laten vertalen

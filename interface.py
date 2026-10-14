@@ -18,8 +18,9 @@ ctk.set_default_color_theme("blue")
 
 
 class TranslatorUI:
-    def __init__(self, root, start_callback, save_key_callback, download_callback):
+    def __init__(self, root, start_callback, save_key_callback, download_callback, version=""):
         self.root = root
+        self.version = version
         self.start_callback = start_callback
         self.save_key_callback = save_key_callback
         self.download_callback = download_callback
@@ -88,6 +89,12 @@ class TranslatorUI:
             title_block, text="File Translator",
             font=ctk.CTkFont(size=22, weight="bold"),
         ).pack(side="left")
+        if self.version:
+            ctk.CTkLabel(
+                title_block, text=f"v{self.version}",
+                font=ctk.CTkFont(size=12),
+                text_color=("gray45", "gray60"),
+            ).pack(side="left", padx=(10, 0), pady=(8, 0))
 
         ctk.CTkButton(
             header, text="⚙️", width=36, height=36,

@@ -20,7 +20,7 @@ from interface import TranslatorUI
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
 # ── CONFIGURATIE VOOR AFSTANDSBEDIENING / UPDATES ──
-CURRENT_VERSION = "1.3.2"
+CURRENT_VERSION = "1.3.3"
 VERSION_URL = "https://raw.githubusercontent.com/gabrielllzs/Translator/refs/heads/main/version.json"
 
 class MainController:
@@ -32,7 +32,8 @@ class MainController:
         except Exception:
             pass
         self.root = ctk.CTk()
-        self.ui = TranslatorUI(self.root, self.handle_start_translation, self.handle_save_api_key, self.handle_download)
+        self.ui = TranslatorUI(self.root, self.handle_start_translation, self.handle_save_api_key, self.handle_download,
+                              version=CURRENT_VERSION)
 
         # Vertalingen komen eerst in een tijdelijke map terecht; de gebruiker
         # kiest daarna zelf via "Downloaden" waar ze naartoe gaan.
